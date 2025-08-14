@@ -1,0 +1,13 @@
+ccxt==4.1.77
+pandas==2.1.4
+numpy==1.24.3
+ta==0.10.2
+flask==3.0.0
+flask-socketio==5.3.6
+python-dotenv==1.0.0
+schedule==1.2.0
+requests==2.31.0
+websocket-client==1.6.4
+plotly==5.17.0
+dash==2.14.2
+dash-bootstrap-components==1.2.4
