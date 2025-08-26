@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-Advanced Forex Trading Bot with Scalping, Grid Trading, Hedging, News Analysis, and Self-Learning
+UPGRADED Advanced Forex Trading Bot with Deep Learning, Portfolio Optimization, and Advanced Risk Management
 Features:
-- MetaTrader5 integration
-- Scalping strategies
-- Grid trading with dynamic levels
-- Hedging mechanisms
-- News sentiment analysis
-- Self-learning ML models
-- Risk management
-- Performance analytics
+- MetaTrader5 integration with enhanced error handling
+- Advanced scalping with momentum detection
+- Dynamic grid trading with adaptive levels
+- Portfolio hedging with correlation analysis
+- Deep learning models (LSTM, Transformer)
+- Advanced news sentiment with multiple sources
+- Portfolio optimization and risk parity
+- Advanced technical indicators and pattern recognition
+- Real-time market regime detection
+- Enhanced backtesting and performance analytics
 """
 
 import os
@@ -19,7 +21,7 @@ import logging
 import asyncio
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Union
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -29,192 +31,351 @@ import pandas as pd
 import MetaTrader5 as mt5
 from dotenv import load_dotenv
 
-# Machine Learning
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
+# Advanced Machine Learning
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, VotingRegressor
+from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.model_selection import train_test_split, TimeSeriesSplit, GridSearchCV
+from sklearn.metrics import mean_squared_error, r2_score, classification_report
 import tensorflow as tf
 from tensorflow import keras
+from tensorflow.keras import layers, optimizers, callbacks
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
 import joblib
+import optuna
+from optuna.integration import TFKerasPruningCallback
 
-# Technical Analysis
+# Advanced Technical Analysis
 import ta
 import pandas_ta as pta
+from scipy import stats
+from scipy.signal import find_peaks
+import talib
 
-# News and Sentiment
+# Advanced Mathematics and Statistics
+from scipy.stats import norm, skew, kurtosis
+from scipy.optimize import minimize, differential_evolution
+import statsmodels.api as sm
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.stattools import adfuller, kpss
+from arch import arch_model
+
+# News and Sentiment Analysis
 import requests
 from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import yfinance as yf
+from alpha_vantage.timeseries import TimeSeries
+
+# Portfolio Optimization
+from scipy.optimize import minimize
+import cvxpy as cp
 
 # Configuration
 load_dotenv()
 
 class AdvancedForexBot:
     def __init__(self, config_path: str = "bot_config.json"):
-        """Initialize the advanced forex trading bot"""
+        """Initialize the upgraded advanced forex trading bot"""
         self.config = self.load_config(config_path)
         self.setup_logging()
         self.setup_mt5()
-        self.setup_ml_models()
+        self.setup_advanced_ml_models()
+        self.setup_portfolio_optimizer()
         
-        # Trading state
+        # Enhanced trading state
         self.active_trades = {}
         self.grid_levels = {}
         self.hedge_positions = {}
         self.performance_metrics = {}
+        self.portfolio_state = {}
+        self.market_regime = "unknown"
         
-        # News cache
+        # Advanced caches
         self.news_cache = {}
         self.sentiment_cache = {}
-        
-        # ML model cache
         self.model_cache = {}
         self.scaler_cache = {}
+        self.feature_cache = {}
         
-        # Threading
+        # Threading and async
         self.running = False
         self.trading_thread = None
         self.news_thread = None
         self.analysis_thread = None
+        self.optimization_thread = None
+        
+        # Performance tracking
+        self.trade_history = []
+        self.performance_history = []
+        self.risk_metrics = {}
         
     def load_config(self, config_path: str) -> Dict:
-        """Load bot configuration"""
+        """Load enhanced bot configuration"""
         default_config = {
             "mt5": {
                 "login": int(os.getenv("MT5_LOGIN", "0")),
                 "password": os.getenv("MT5_PASSWORD", ""),
                 "server": os.getenv("MT5_SERVER", ""),
-                "symbols": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD"],
-                "timeframe": "M5"
+                "symbols": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "NZDUSD"],
+                "timeframe": "M5",
+                "max_retries": 3,
+                "retry_delay": 5
             },
             "trading": {
                 "scalping": {
                     "enabled": True,
                     "min_profit": 0.0005,
                     "max_loss": 0.001,
-                    "position_size": 0.01
+                    "position_size": 0.01,
+                    "momentum_threshold": 0.7,
+                    "volatility_filter": True,
+                    "time_filter": True
                 },
                 "grid": {
                     "enabled": True,
                     "levels": 5,
                     "spacing": 0.001,
-                    "position_size": 0.01
+                    "position_size": 0.01,
+                    "adaptive_spacing": True,
+                    "dynamic_levels": True,
+                    "max_grid_trades": 10
                 },
                 "hedging": {
                     "enabled": True,
                     "correlation_threshold": 0.7,
-                    "max_hedge_ratio": 0.5
+                    "max_hedge_ratio": 0.5,
+                    "auto_hedge": True,
+                    "portfolio_hedging": True
                 },
                 "risk": {
                     "max_daily_loss": 0.02,
                     "max_position_size": 0.1,
                     "stop_loss": 0.005,
-                    "take_profit": 0.01
+                    "take_profit": 0.01,
+                    "max_drawdown": 0.05,
+                    "position_sizing": "kelly",
+                    "var_confidence": 0.95,
+                    "max_correlation": 0.8
                 }
-            },
-            "news": {
-                "enabled": True,
-                "api_key": os.getenv("NEWS_API_KEY", ""),
-                "impact_threshold": 0.6,
-                "update_interval": 300
             },
             "ml": {
                 "enabled": True,
+                "models": {
+                    "price_prediction": ["lstm", "transformer", "ensemble"],
+                    "volatility_prediction": ["garch", "lstm", "ensemble"],
+                    "regime_detection": ["hmm", "gmm", "clustering"]
+                },
                 "retrain_interval": 86400,
                 "prediction_threshold": 0.6,
-                "features": ["rsi", "macd", "bollinger", "volume", "sentiment"]
+                "hyperparameter_tuning": True,
+                "cross_validation": True,
+                "feature_selection": True,
+                "ensemble_method": "voting"
+            },
+            "news": {
+                "enabled": True,
+                "sources": ["newsapi", "alphavantage", "yfinance"],
+                "api_keys": {
+                    "newsapi": os.getenv("NEWS_API_KEY", ""),
+                    "alphavantage": os.getenv("ALPHA_VANTAGE_KEY", "")
+                },
+                "impact_threshold": 0.6,
+                "update_interval": 300,
+                "sentiment_analysis": "ensemble"
+            },
+            "portfolio": {
+                "optimization": True,
+                "method": "risk_parity",
+                "rebalance_interval": 3600,
+                "max_assets": 10,
+                "min_weight": 0.05,
+                "max_weight": 0.3
             }
         }
         
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 user_config = json.load(f)
-                # Merge user config with defaults
-                for key, value in user_config.items():
-                    if key in default_config:
-                        if isinstance(value, dict):
-                            default_config[key].update(value)
-                        else:
-                            default_config[key] = value
+                # Deep merge user config with defaults
+                self._deep_merge(default_config, user_config)
         
         return default_config
     
+    def _deep_merge(self, default: Dict, user: Dict):
+        """Deep merge configuration dictionaries"""
+        for key, value in user.items():
+            if key in default and isinstance(default[key], dict) and isinstance(value, dict):
+                self._deep_merge(default[key], value)
+            else:
+                default[key] = value
+    
     def setup_logging(self):
-        """Setup logging configuration"""
+        """Setup enhanced logging configuration"""
+        log_dir = "logs"
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        
+        # Create rotating file handler
+        from logging.handlers import RotatingFileHandler
+        
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler('trading_bot.log'),
+                RotatingFileHandler(
+                    os.path.join(log_dir, 'trading_bot.log'),
+                    maxBytes=10*1024*1024,  # 10MB
+                    backupCount=5
+                ),
                 logging.StreamHandler()
             ]
         )
         self.logger = logging.getLogger(__name__)
+        
+        # Set specific logger levels
+        logging.getLogger('tensorflow').setLevel(logging.WARNING)
+        logging.getLogger('matplotlib').setLevel(logging.WARNING)
     
     def setup_mt5(self):
-        """Initialize MetaTrader5 connection"""
-        if not mt5.initialize():
-            self.logger.error("Failed to initialize MT5")
-            return False
+        """Initialize enhanced MetaTrader5 connection with retry logic"""
+        max_retries = self.config["mt5"]["max_retries"]
+        retry_delay = self.config["mt5"]["retry_delay"]
         
-        # Login to MT5
-        if not mt5.login(
-            login=self.config["mt5"]["login"],
-            password=self.config["mt5"]["password"],
-            server=self.config["mt5"]["server"]
-        ):
-            self.logger.error("Failed to login to MT5")
-            return False
+        for attempt in range(max_retries):
+            try:
+                if not mt5.initialize():
+                    raise Exception("Failed to initialize MT5")
+                
+                # Login to MT5
+                if not mt5.login(
+                    login=self.config["mt5"]["login"],
+                    password=self.config["mt5"]["password"],
+                    server=self.config["mt5"]["server"]
+                ):
+                    raise Exception("Failed to login to MT5")
+                
+                # Test connection
+                account_info = mt5.account_info()
+                if account_info is None:
+                    raise Exception("Failed to get account info")
+                
+                self.logger.info(f"Successfully connected to MetaTrader5 - Account: {account_info.login}")
+                self.logger.info(f"Balance: {account_info.balance}, Equity: {account_info.equity}")
+                return True
+                
+            except Exception as e:
+                self.logger.error(f"MT5 connection attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    self.logger.info(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    mt5.shutdown()
+                else:
+                    self.logger.error("Failed to connect to MT5 after all retries")
+                    return False
         
-        self.logger.info("Successfully connected to MetaTrader5")
-        return True
+        return False
     
-    def setup_ml_models(self):
-        """Initialize machine learning models"""
+    def setup_advanced_ml_models(self):
+        """Initialize advanced machine learning models"""
         self.models = {
-            'price_prediction': RandomForestRegressor(n_estimators=100, random_state=42),
-            'volatility_prediction': GradientBoostingRegressor(random_state=42),
-            'sentiment_analysis': None  # Will be loaded from cache or trained
+            'price_prediction': {},
+            'volatility_prediction': {},
+            'regime_detection': {},
+            'sentiment_analysis': {}
         }
         
         self.scalers = {
-            'price_features': StandardScaler(),
-            'volatility_features': StandardScaler()
+            'price_features': RobustScaler(),
+            'volatility_features': RobustScaler(),
+            'sentiment_features': StandardScaler()
         }
+        
+        # Initialize deep learning models
+        self._initialize_deep_learning_models()
         
         # Load pre-trained models if available
         self.load_models()
     
-    def load_models(self):
-        """Load pre-trained models from disk"""
-        model_dir = "models"
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir)
-            return
-        
-        for model_name in self.models.keys():
-            model_path = os.path.join(model_dir, f"{model_name}.joblib")
-            if os.path.exists(model_path):
-                try:
-                    self.models[model_name] = joblib.load(model_path)
-                    self.logger.info(f"Loaded model: {model_name}")
-                except Exception as e:
-                    self.logger.error(f"Failed to load model {model_name}: {e}")
+    def _initialize_deep_learning_models(self):
+        """Initialize deep learning models"""
+        try:
+            # LSTM for price prediction
+            self.models['price_prediction']['lstm'] = self._create_lstm_model()
+            
+            # Transformer for price prediction
+            self.models['price_prediction']['transformer'] = self._create_transformer_model()
+            
+            # GARCH for volatility
+            self.models['volatility_prediction']['garch'] = None  # Will be initialized when needed
+            
+            # HMM for regime detection
+            self.models['regime_detection']['hmm'] = None  # Will be initialized when needed
+            
+            self.logger.info("Deep learning models initialized successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Error initializing deep learning models: {e}")
     
-    def save_models(self):
-        """Save trained models to disk"""
-        model_dir = "models"
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir)
+    def _create_lstm_model(self):
+        """Create LSTM model for price prediction"""
+        model = keras.Sequential([
+            layers.LSTM(128, return_sequences=True, input_shape=(None, 50)),
+            layers.Dropout(0.2),
+            layers.LSTM(64, return_sequences=False),
+            layers.Dropout(0.2),
+            layers.Dense(32, activation='relu'),
+            layers.Dense(1, activation='linear')
+        ])
         
-        for model_name, model in self.models.items():
-            if model is not None:
-                try:
-                    model_path = os.path.join(model_dir, f"{model_name}.joblib")
-                    joblib.dump(model, model_path)
-                    self.logger.info(f"Saved model: {model_name}")
-                except Exception as e:
-                    self.logger.error(f"Failed to save model {model_name}: {e}")
+        model.compile(
+            optimizer=optimizers.Adam(learning_rate=0.001),
+            loss='mse',
+            metrics=['mae']
+        )
+        
+        return model
+    
+    def _create_transformer_model(self):
+        """Create Transformer model for price prediction"""
+        # Simplified transformer for time series
+        inputs = keras.Input(shape=(None, 50))
+        
+        # Multi-head attention
+        attention_output = layers.MultiHeadAttention(
+            num_heads=8, key_dim=64
+        )(inputs, inputs)
+        
+        # Add & Norm
+        x = layers.LayerNormalization(epsilon=1e-6)(attention_output + inputs)
+        
+        # Feed forward
+        ffn = keras.Sequential([
+            layers.Dense(256, activation='relu'),
+            layers.Dense(50)
+        ])
+        
+        # Add & Norm
+        x = layers.LayerNormalization(epsilon=1e-6)(ffn(x) + x)
+        
+        # Global average pooling and output
+        x = layers.GlobalAveragePooling1D()(x)
+        outputs = layers.Dense(1, activation='linear')(x)
+        
+        model = keras.Model(inputs=inputs, outputs=outputs)
+        model.compile(
+            optimizer=optimizers.Adam(learning_rate=0.001),
+            loss='mse',
+            metrics=['mae']
+        )
+        
+        return model
+    
+    def setup_portfolio_optimizer(self):
+        """Setup portfolio optimization"""
+        self.portfolio_optimizer = PortfolioOptimizer(self.config["portfolio"])
     
     def get_market_data(self, symbol: str, timeframe: str = "M5", bars: int = 1000) -> pd.DataFrame:
         """Get market data from MT5"""
@@ -305,7 +466,7 @@ class AdvancedForexBot:
                 return self.sentiment_cache[cache_key]
             
             # Get news from API
-            api_key = self.config["news"]["api_key"]
+            api_key = self.config["news"]["api_keys"]["newsapi"]
             if not api_key:
                 return 0.0
             
