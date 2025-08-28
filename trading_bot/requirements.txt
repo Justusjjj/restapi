@@ -1,0 +1,14 @@
+# Core Libraries
+pandas
+numpy
+
+# Machine Learning
+scikit-learn
+
+# Technical Analysis
+pandas-ta
+
+# MetaTrader 5 Connection
+# This package might need to be installed from a specific source
+# if running on an OS other than Windows.
+MetaTrader5
