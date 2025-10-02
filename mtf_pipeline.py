@@ -74,11 +74,24 @@ class MT5Connector:
 class MultiTimeframeAnalyzer:
 	"""
 	Builds higher-timeframe bias and key levels (MN1/W1/H4), structure on H1, and confirmation on M15/M5/M1.
-	Integrates ICT-style levels plus basic sentiment context.
+	Integrates ICT-style levels plus basic sentiment context and optional deep model confirmation.
 	"""
-	def __init__(self):
+	def __init__(self, model_pt: Optional[str] = None, seq_len: int = 64, horizon: int = 12):
 		self.ict = ICTPriceActionAnalyzer()
 		self.news = NewsSentimentAnalyzer()
+		self.model = None
+		self.seq_len = seq_len
+		self.horizon = horizon
+		if model_pt and os.path.exists(model_pt):
+			try:
+				import torch
+				from deep_model import LSTMClassifier
+				self.model = LSTMClassifier(input_dim=11)
+				state = torch.load(model_pt, map_location="cpu")
+				self.model.load_state_dict(state)
+				self.model.eval()
+			except Exception:
+				self.model = None
 
 	def _key_levels(self, df: pd.DataFrame, lookback: int = 200) -> Dict[str, float]:
 		if df.empty:
@@ -101,6 +114,23 @@ class MultiTimeframeAnalyzer:
 		if sma_fast.iloc[-1] < sma_slow.iloc[-1]:
 			return "BEARISH"
 		return "NEUTRAL"
+
+	def _latest_sequence(self, m15: pd.DataFrame) -> Optional[np.ndarray]:
+		if m15.empty or len(m15) < self.seq_len + self.horizon + 1:
+			return None
+		df = m15.copy()
+		df["ret"] = df["close"].pct_change()
+		df["vol"] = df["ret"].rolling(20).std()
+		df["ma_fast"] = df["close"].ewm(span=10).mean()
+		df["ma_slow"] = df["close"].ewm(span=30).mean()
+		df["bb_mid"] = df["close"].rolling(20).mean()
+		df["bb_std"] = df["close"].rolling(20).std()
+		df = df.dropna()
+		feat_cols = ["ret", "vol", "ma_fast", "ma_slow", "bb_mid", "bb_std", "high", "low", "open", "close", "volume"]
+		if len(df) < self.seq_len:
+			return None
+		seq = df[feat_cols].values[-self.seq_len:]
+		return seq[np.newaxis, ...]
 
 	def analyze(self, symbol: str, mt5c: MT5Connector) -> Dict:
 		# Fetch required timeframes
@@ -135,6 +165,18 @@ class MultiTimeframeAnalyzer:
 		news_sent = self.news.analyze_news_sentiment(news_df)
 		composite = self.news.calculate_composite_sentiment(news_sent, pd.DataFrame())
 
+		# Deep model confirmation on M15 sequence
+		deep_pred = None
+		if self.model is not None:
+			seq = self._latest_sequence(m15)
+			if seq is not None:
+				import torch
+				with torch.no_grad():
+					xt = torch.tensor(seq, dtype=torch.float32)
+					logits = self.model(xt)
+					probs = torch.softmax(logits, dim=1).numpy()[0]
+					deep_pred = {"up": float(probs[1]), "down": float(probs[0])}
+
 		analysis = {
 			"symbol": symbol,
 			"bias": {"MN1": bias_mn1, "W1": bias_w1, "H4": bias_h4},
@@ -144,14 +186,14 @@ class MultiTimeframeAnalyzer:
 			"M5": m5_ict,
 			"M1": m1_ict,
 			"sentiment": composite,
+			"deep": deep_pred,
 			"timestamp": datetime.utcnow().isoformat(),
 		}
 		return analysis
 
 	def decision(self, analysis: Dict) -> Dict:
 		"""
-		Simple rules to align trades: trade with MN1/W1/H4 bias, require H1 structure confluence,
-		and LTF confirmation signals from M15/M5/M1 (e.g., presence of breakout/liquidity sweep + FVG/OB).
+		Rule-set: HTF consensus + ICT LTF confirmation + optional deep up/down tilt.
 		"""
 		biases = analysis.get("bias", {})
 		if len({biases.get("MN1"), biases.get("W1"), biases.get("H4")} - {None}) < 3:
@@ -172,8 +214,12 @@ class MultiTimeframeAnalyzer:
 		if not ltf_ok:
 			return {"action": "HOLD", "reason": "no_ltf_confirmation"}
 
-		if long_bias:
-			return {"action": "BUY", "risk": 0.5, "reason": "HTF_bullish_with_LTF_confirm"}
-		if short_bias:
-			return {"action": "SELL", "risk": 0.5, "reason": "HTF_bearish_with_LTF_confirm"}
-		return {"action": "HOLD", "reason": "mixed_bias"}
+		deep = analysis.get("deep") or {}
+		up_p = deep.get("up", 0.5)
+		down_p = deep.get("down", 0.5)
+
+		if long_bias and up_p >= 0.55:
+			return {"action": "BUY", "risk": 0.5, "reason": "HTF_bullish_LTF_ok_deep_up"}
+		if short_bias and down_p >= 0.55:
+			return {"action": "SELL", "risk": 0.5, "reason": "HTF_bearish_LTF_ok_deep_down"}
+		return {"action": "HOLD", "reason": "mixed_or_low_confidence"}
