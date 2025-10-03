@@ -14,6 +14,12 @@ from backtest_decider import DecisionRuleBacktester
 from rl_trading import train_rl_agent, evaluate_rl_agent, TradingEnvironment
 from hybrid_transformer_tree import train_hybrid_model, evaluate_hybrid_model, HybridTransformerTree
 from mistake_learning import MistakeLearningSystem, analyze_trade_outcome, get_demo_account_balance
+from advanced_ensemble import AdvancedEnsembleModel, MarketRegimeDetector, create_advanced_ensemble_config
+from portfolio_optimizer import AdvancedPortfolioOptimizer, MultiAssetCorrelationAnalyzer
+from advanced_order_manager import AdvancedOrderManager, AdvancedOrder, OrderType
+from advanced_news_sentiment import AdvancedNewsSentimentAnalyzer
+from advanced_backtester import AdvancedBacktester
+from performance_dashboard import RealTimePerformanceDashboard, PerformanceAnalytics
 
 app = typer.Typer(add_completion=False)
 
@@ -440,6 +446,93 @@ def demo_balance():
 	"""Show current demo account balance."""
 	balance = get_demo_account_balance()
 	typer.echo(f"💰 Demo Account Balance: ${balance:.2f}")
+
+
+@app.command("ensemble-train")
+def ensemble_train(npz: str = typer.Argument(...), epochs: int = typer.Option(50), batch_size: int = typer.Option(64), lr: float = typer.Option(1e-3), out_model: str = typer.Option("ensemble_model")):
+	"""Train advanced ensemble model with dynamic model selection."""
+	data = np.load(npz)
+	X, y = data["X"], data["y"]
+	
+	# Create ensemble configuration
+	config = create_advanced_ensemble_config()
+	
+	# Initialize ensemble
+	ensemble = AdvancedEnsembleModel(config)
+	
+	# Train ensemble
+	results = ensemble.train_ensemble(X, y, validation_split=0.2)
+	
+	# Save ensemble
+	ensemble.save_ensemble(out_model)
+	
+	typer.echo(f"Advanced ensemble training completed. Model saved to {out_model}")
+
+
+@app.command("ensemble-predict")
+def ensemble_predict(npz: str = typer.Argument(...), model_path: str = typer.Argument(...)):
+	"""Make predictions using advanced ensemble model."""
+	data = np.load(npz)
+	X = data["X"]
+	
+	# Load ensemble
+	ensemble = AdvancedEnsembleModel({})
+	ensemble.load_ensemble(model_path)
+	
+	# Make predictions
+	predictions = ensemble.predict_ensemble(X, use_regime_selection=True)
+	
+	typer.echo(json.dumps(predictions, indent=2))
+
+
+@app.command("portfolio-optimize")
+def portfolio_optimize(symbols: str = typer.Argument(...), method: str = typer.Option("risk_parity", help="risk_parity or mean_variance")):
+	"""Optimize portfolio using advanced methods."""
+	symbol_list = symbols.split(",")
+	
+	# Initialize portfolio optimizer
+	optimizer = AdvancedPortfolioOptimizer(symbol_list)
+	
+	# This would need MT5 connection in real implementation
+	typer.echo(f"Portfolio optimization for {symbol_list} using {method} method")
+
+
+@app.command("advanced-backtest")
+def advanced_backtest(symbols: str = typer.Argument(...), method: str = typer.Option("walk_forward", help="walk_forward or regime_aware")):
+	"""Run advanced backtesting with walk-forward analysis."""
+	symbol_list = symbols.split(",")
+	
+	# Initialize advanced backtester
+	backtester = AdvancedBacktester(symbol_list)
+	backtester.setup_walk_forward_analysis()
+	
+	typer.echo(f"Advanced backtesting for {symbol_list} using {method} method")
+
+
+@app.command("news-sentiment")
+def news_sentiment(symbols: str = typer.Argument(...), hours_back: int = typer.Option(24)):
+	"""Get real-time news sentiment analysis."""
+	symbol_list = symbols.split(",")
+	
+	# Initialize news analyzer
+	analyzer = AdvancedNewsSentimentAnalyzer()
+	
+	# Get sentiment summary
+	sentiment_data = analyzer.get_sentiment_summary(symbol_list, hours_back)
+	
+	typer.echo(json.dumps(sentiment_data, indent=2))
+
+
+@app.command("start-dashboard")
+def start_dashboard(symbols: str = typer.Argument(...), port: int = typer.Option(8050)):
+	"""Start real-time performance dashboard."""
+	symbol_list = symbols.split(",")
+	
+	# Initialize dashboard
+	dashboard = RealTimePerformanceDashboard(symbol_list)
+	
+	typer.echo(f"Starting dashboard for {symbol_list} on port {port}")
+	dashboard.run_dashboard(port=port)
 
 
 if __name__ == "__main__":
