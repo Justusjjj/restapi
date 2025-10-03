@@ -101,13 +101,18 @@ class StrategyOptimizer:
 						 lookback_periods: int) -> StrategyPerformance:
 		"""Backtest a single strategy"""
 		
-		# Use primary timeframe data
-		primary_data = data.get("H1")
-		if primary_data is None or len(primary_data) < lookback_periods:
-			raise ValueError("Insufficient data for backtesting")
-		
-		# Prepare backtest data
-		backtest_data = primary_data.tail(lookback_periods).copy()
+		# Handle different strategy types
+		if isinstance(strategy, MultiTimeframeStrategy):
+			# Multi-timeframe strategy needs all timeframes
+			backtest_data = data
+		else:
+			# Single timeframe strategies use H1 data
+			primary_data = data.get("H1")
+			if primary_data is None or len(primary_data) < lookback_periods:
+				raise ValueError("Insufficient data for backtesting")
+			
+			# Prepare backtest data
+			backtest_data = primary_data.tail(lookback_periods).copy()
 		
 		# Initialize backtest variables
 		balance = 10000.0
@@ -118,40 +123,69 @@ class StrategyOptimizer:
 		max_drawdown = 0.0
 		
 		# Process each bar
-		for i in range(50, len(backtest_data)):  # Start after 50 bars for indicators
-			current_bar = backtest_data.iloc[i]
-			historical_data = backtest_data.iloc[:i+1]
-			
-			# Generate signal
-			try:
-				if isinstance(strategy, MultiTimeframeStrategy):
-					# Multi-timeframe strategy needs all timeframes
-					signal = strategy.generate_signal(data, {"current_bar": current_bar})
-				else:
-					signal = strategy.generate_signal(historical_data, {"current_bar": current_bar})
-			except Exception as e:
-				print(f"Signal generation error: {e}")
-				continue
-			
-			# Execute trades
-			if signal and signal.action in ["BUY", "SELL"]:
-				trade_result = self._execute_backtest_trade(
-					signal, current_bar, balance, positions
-				)
+		if isinstance(strategy, MultiTimeframeStrategy):
+			# Multi-timeframe strategy processing
+			for i in range(50, len(backtest_data["H1"])):
+				current_bar = backtest_data["H1"].iloc[i]
 				
-				if trade_result:
-					trade_history.append(trade_result)
-					balance += trade_result['pnl']
+				# Generate signal
+				try:
+					signal = strategy.generate_signal(backtest_data, {"current_bar": current_bar})
+				except Exception as e:
+					print(f"Signal generation error: {e}")
+					continue
+				
+				# Execute trades
+				if signal and signal.action in ["BUY", "SELL"]:
+					trade_result = self._execute_backtest_trade(
+						signal, current_bar, balance, positions
+					)
 					
-					# Update max drawdown
-					if balance > max_balance:
-						max_balance = balance
+					if trade_result:
+						trade_history.append(trade_result)
+						balance += trade_result['pnl']
+						
+						# Update max drawdown
+						if balance > max_balance:
+							max_balance = balance
+						
+						current_drawdown = (max_balance - balance) / max_balance
+						max_drawdown = max(max_drawdown, current_drawdown)
+				
+				# Update equity curve
+				equity_curve.append(balance)
+		else:
+			# Single timeframe strategy processing
+			for i in range(50, len(backtest_data)):
+				current_bar = backtest_data.iloc[i]
+				historical_data = backtest_data.iloc[:i+1]
+				
+				# Generate signal
+				try:
+					signal = strategy.generate_signal(historical_data, {"current_bar": current_bar})
+				except Exception as e:
+					print(f"Signal generation error: {e}")
+					continue
+				
+				# Execute trades
+				if signal and signal.action in ["BUY", "SELL"]:
+					trade_result = self._execute_backtest_trade(
+						signal, current_bar, balance, positions
+					)
 					
-					current_drawdown = (max_balance - balance) / max_balance
-					max_drawdown = max(max_drawdown, current_drawdown)
-			
-			# Update equity curve
-			equity_curve.append(balance)
+					if trade_result:
+						trade_history.append(trade_result)
+						balance += trade_result['pnl']
+						
+						# Update max drawdown
+						if balance > max_balance:
+							max_balance = balance
+						
+						current_drawdown = (max_balance - balance) / max_balance
+						max_drawdown = max(max_drawdown, current_drawdown)
+				
+				# Update equity curve
+				equity_curve.append(balance)
 		
 		# Calculate performance metrics
 		performance = self._calculate_performance_metrics(

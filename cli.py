@@ -590,6 +590,7 @@ def strategy_test(symbol: str = typer.Argument(...), strategy_name: str = typer.
 		
 		signal = strategy.generate_signal(mtf_data)
 	else:
+		# Single timeframe strategies can use H1 data
 		signal = strategy.generate_signal(data)
 	
 	if signal:

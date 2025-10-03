@@ -30,21 +30,32 @@ class MomentumStrategy(BaseStrategy):
 			"min_momentum": 0.5
 		}
 	
-	def generate_signal(self, data: pd.DataFrame, context: Dict = None) -> Optional[TradingSignal]:
+	def generate_signal(self, data: Union[pd.DataFrame, Dict[str, pd.DataFrame]], context: Dict = None) -> Optional[TradingSignal]:
 		"""Generate momentum-based trading signal"""
 		
-		if len(data) < 50:
+		# Handle both single DataFrame and multi-timeframe data
+		if isinstance(data, dict):
+			# Use H1 data for momentum analysis
+			if "H1" in data:
+				analysis_data = data["H1"]
+			else:
+				# Use first available timeframe
+				analysis_data = list(data.values())[0]
+		else:
+			analysis_data = data
+		
+		if len(analysis_data) < 50:
 			return None
 		
 		# Calculate technical indicators
-		indicators = self._calculate_indicators(data)
+		indicators = self._calculate_indicators(analysis_data)
 		
 		# Analyze trend and momentum
-		trend_analysis = self._analyze_trend(data, indicators)
-		momentum_analysis = self._analyze_momentum(data, indicators)
+		trend_analysis = self._analyze_trend(analysis_data, indicators)
+		momentum_analysis = self._analyze_momentum(analysis_data, indicators)
 		
 		# Generate signal
-		signal = self._generate_momentum_signal(data, indicators, trend_analysis, momentum_analysis)
+		signal = self._generate_momentum_signal(analysis_data, indicators, trend_analysis, momentum_analysis)
 		
 		return signal
 	
@@ -343,20 +354,31 @@ class MeanReversionStrategy(BaseStrategy):
 			"max_risk_per_trade": 0.02
 		}
 	
-	def generate_signal(self, data: pd.DataFrame, context: Dict = None) -> Optional[TradingSignal]:
+	def generate_signal(self, data: Union[pd.DataFrame, Dict[str, pd.DataFrame]], context: Dict = None) -> Optional[TradingSignal]:
 		"""Generate mean reversion trading signal"""
 		
-		if len(data) < 50:
+		# Handle both single DataFrame and multi-timeframe data
+		if isinstance(data, dict):
+			# Use H1 data for mean reversion analysis
+			if "H1" in data:
+				analysis_data = data["H1"]
+			else:
+				# Use first available timeframe
+				analysis_data = list(data.values())[0]
+		else:
+			analysis_data = data
+		
+		if len(analysis_data) < 50:
 			return None
 		
 		# Calculate indicators
-		indicators = self._calculate_reversion_indicators(data)
+		indicators = self._calculate_reversion_indicators(analysis_data)
 		
 		# Analyze oversold/overbought conditions
-		reversion_signals = self._analyze_reversion_signals(data, indicators)
+		reversion_signals = self._analyze_reversion_signals(analysis_data, indicators)
 		
 		# Generate signal
-		signal = self._generate_reversion_signal(data, indicators, reversion_signals)
+		signal = self._generate_reversion_signal(analysis_data, indicators, reversion_signals)
 		
 		return signal
 	
@@ -385,6 +407,29 @@ class MeanReversionStrategy(BaseStrategy):
 		indicators['cci'] = self._calculate_cci(data)
 		
 		return indicators
+	
+	def _calculate_rsi(self, prices: pd.Series, period: int) -> pd.Series:
+		"""Calculate RSI indicator"""
+		
+		delta = prices.diff()
+		gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+		loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+		
+		rs = gain / loss
+		rsi = 100 - (100 / (1 + rs))
+		
+		return rsi
+	
+	def _calculate_stochastic(self, data: pd.DataFrame, k_period: int = 14, d_period: int = 3) -> Tuple[pd.Series, pd.Series]:
+		"""Calculate Stochastic Oscillator"""
+		
+		lowest_low = data['low'].rolling(k_period).min()
+		highest_high = data['high'].rolling(k_period).max()
+		
+		k_percent = 100 * ((data['close'] - lowest_low) / (highest_high - lowest_low))
+		d_percent = k_percent.rolling(d_period).mean()
+		
+		return k_percent, d_percent
 	
 	def _calculate_williams_r(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
 		"""Calculate Williams %R"""

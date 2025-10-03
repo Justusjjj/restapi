@@ -29,23 +29,34 @@ class BreakoutStrategy(BaseStrategy):
 			"false_breakout_filter": True
 		}
 	
-	def generate_signal(self, data: pd.DataFrame, context: Dict = None) -> Optional[TradingSignal]:
+	def generate_signal(self, data: Union[pd.DataFrame, Dict[str, pd.DataFrame]], context: Dict = None) -> Optional[TradingSignal]:
 		"""Generate breakout trading signal"""
 		
-		if len(data) < 100:
+		# Handle both single DataFrame and multi-timeframe data
+		if isinstance(data, dict):
+			# Use H1 data for breakout analysis
+			if "H1" in data:
+				analysis_data = data["H1"]
+			else:
+				# Use first available timeframe
+				analysis_data = list(data.values())[0]
+		else:
+			analysis_data = data
+		
+		if len(analysis_data) < 100:
 			return None
 		
 		# Identify consolidation patterns
-		consolidation_patterns = self._identify_consolidation_patterns(data)
+		consolidation_patterns = self._identify_consolidation_patterns(analysis_data)
 		
 		if not consolidation_patterns:
 			return None
 		
 		# Check for breakouts
-		breakout_signals = self._detect_breakouts(data, consolidation_patterns)
+		breakout_signals = self._detect_breakouts(analysis_data, consolidation_patterns)
 		
 		# Generate signal
-		signal = self._generate_breakout_signal(data, breakout_signals)
+		signal = self._generate_breakout_signal(analysis_data, breakout_signals)
 		
 		return signal
 	
@@ -374,23 +385,34 @@ class RangeTradingStrategy(BaseStrategy):
 			"max_range_duration": 100
 		}
 	
-	def generate_signal(self, data: pd.DataFrame, context: Dict = None) -> Optional[TradingSignal]:
+	def generate_signal(self, data: Union[pd.DataFrame, Dict[str, pd.DataFrame]], context: Dict = None) -> Optional[TradingSignal]:
 		"""Generate range trading signal"""
 		
-		if len(data) < 100:
+		# Handle both single DataFrame and multi-timeframe data
+		if isinstance(data, dict):
+			# Use H1 data for range trading analysis
+			if "H1" in data:
+				analysis_data = data["H1"]
+			else:
+				# Use first available timeframe
+				analysis_data = list(data.values())[0]
+		else:
+			analysis_data = data
+		
+		if len(analysis_data) < 100:
 			return None
 		
 		# Identify range patterns
-		range_patterns = self._identify_range_patterns(data)
+		range_patterns = self._identify_range_patterns(analysis_data)
 		
 		if not range_patterns:
 			return None
 		
 		# Check for range trading opportunities
-		range_signals = self._detect_range_signals(data, range_patterns)
+		range_signals = self._detect_range_signals(analysis_data, range_patterns)
 		
 		# Generate signal
-		signal = self._generate_range_signal(data, range_signals)
+		signal = self._generate_range_signal(analysis_data, range_signals)
 		
 		return signal
 	
@@ -458,6 +480,35 @@ class RangeTradingStrategy(BaseStrategy):
 			"trend_slope": trend_slope,
 			"duration": len(data)
 		}
+	
+	def _calculate_trend_slope(self, prices: pd.Series) -> float:
+		"""Calculate trend slope within range"""
+		
+		if len(prices) < 2:
+			return 0.0
+		
+		x = np.arange(len(prices))
+		y = prices.values
+		
+		# Linear regression slope
+		slope = np.polyfit(x, y, 1)[0]
+		
+		# Normalize slope
+		normalized_slope = slope / prices.mean()
+		
+		return normalized_slope
+	
+	def _calculate_rsi(self, prices: pd.Series, period: int) -> pd.Series:
+		"""Calculate RSI indicator"""
+		
+		delta = prices.diff()
+		gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+		loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+		
+		rs = gain / loss
+		rsi = 100 - (100 / (1 + rs))
+		
+		return rsi
 	
 	def _analyze_bounces(self, data: pd.DataFrame, support: float, resistance: float) -> Dict:
 		"""Analyze bounces off support and resistance"""

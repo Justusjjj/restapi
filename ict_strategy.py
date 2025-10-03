@@ -60,7 +60,7 @@ class BaseStrategy(ABC):
 		self.active_positions = []
 		
 	@abstractmethod
-	def generate_signal(self, data: pd.DataFrame, context: Dict = None) -> Optional[TradingSignal]:
+	def generate_signal(self, data: Union[pd.DataFrame, Dict[str, pd.DataFrame]], context: Dict = None) -> Optional[TradingSignal]:
 		"""Generate trading signal based on strategy logic"""
 		pass
 	
@@ -111,21 +111,32 @@ class ICTStrategy(BaseStrategy):
 			"risk_reward_min": 1.5
 		}
 	
-	def generate_signal(self, data: pd.DataFrame, context: Dict = None) -> Optional[TradingSignal]:
+	def generate_signal(self, data: Union[pd.DataFrame, Dict[str, pd.DataFrame]], context: Dict = None) -> Optional[TradingSignal]:
 		"""Generate ICT-based trading signal"""
 		
-		if len(data) < 50:
+		# Handle both single DataFrame and multi-timeframe data
+		if isinstance(data, dict):
+			# Use H1 data for ICT analysis
+			if "H1" in data:
+				analysis_data = data["H1"]
+			else:
+				# Use first available timeframe
+				analysis_data = list(data.values())[0]
+		else:
+			analysis_data = data
+		
+		if len(analysis_data) < 50:
 			return None
 		
 		# Get latest price
-		current_price = data['close'].iloc[-1]
-		current_time = data.index[-1]
+		current_price = analysis_data['close'].iloc[-1]
+		current_time = analysis_data.index[-1]
 		
 		# Analyze ICT patterns
-		order_blocks = self._detect_order_blocks(data)
-		fair_value_gaps = self._detect_fair_value_gaps(data)
-		liquidity_sweeps = self._detect_liquidity_sweeps(data)
-		market_structure = self._analyze_market_structure(data)
+		order_blocks = self._detect_order_blocks(analysis_data)
+		fair_value_gaps = self._detect_fair_value_gaps(analysis_data)
+		liquidity_sweeps = self._detect_liquidity_sweeps(analysis_data)
+		market_structure = self._analyze_market_structure(analysis_data)
 		
 		# Combine signals
 		signal_strength = self._calculate_signal_strength(order_blocks, fair_value_gaps, liquidity_sweeps, market_structure)
@@ -141,7 +152,7 @@ class ICTStrategy(BaseStrategy):
 		
 		# Calculate entry, stop loss, and take profit
 		entry_price = current_price
-		stop_loss, take_profit = self._calculate_levels(action, data, order_blocks, fair_value_gaps)
+		stop_loss, take_profit = self._calculate_levels(action, analysis_data, order_blocks, fair_value_gaps)
 		
 		# Calculate risk-reward ratio
 		risk = abs(entry_price - stop_loss)
