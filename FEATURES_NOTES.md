@@ -56,6 +56,18 @@ A comprehensive ML/AI trading system with MT5 integration, multi-timeframe analy
 - **Stop Loss/Take Profit**: Automatic risk control
 - **Account Management**: Balance and exposure tracking
 
+### 7. **AI Learning from Mistakes** (`mistake_learning.py`)
+- **Mistake Recording**: Automatic detection and logging of trading mistakes
+- **Pattern Learning**: AI identifies recurring mistake patterns
+- **Adaptation Rules**: Dynamic behavior modification based on learned patterns
+- **Lesson Generation**: Context-aware learning recommendations
+- **Evolution Tracking**: Monitor AI learning effectiveness over time
+
+### 8. **Demo Account Integration** (`mistake_learning.py`)
+- **Real Balance Detection**: Automatically gets actual demo account balance
+- **No Hardcoded Values**: Uses live MT5 account information
+- **Balance Tracking**: Real-time balance monitoring for position sizing
+
 ---
 
 ## 🛠️ **CLI Commands**
@@ -104,8 +116,23 @@ python /workspace/cli.py backtest-decider EURUSD --model-pt /workspace/eurusd_ls
 
 ### **Live Trading**
 ```bash
-# Execute single trade
+# Execute single trade with AI learning
 python /workspace/cli.py trade-once EURUSD --model-pt /workspace/eurusd_lstm.pt --risk-pct 0.01 --atr-mult 1.5
+
+# Show demo account balance
+python /workspace/cli.py demo-balance
+```
+
+### **AI Learning Management**
+```bash
+# Check AI learning status
+python /workspace/cli.py ai-learning-status
+
+# Show learned adaptation rules
+python /workspace/cli.py ai-show-rules
+
+# Reset AI learning database
+python /workspace/cli.py ai-reset-learning
 ```
 
 ---
@@ -133,6 +160,35 @@ Based on web research findings:
    - **Robustness**: Ensemble methods reduce overfitting
    - **Feature Learning**: Self-supervised contrastive learning
 
+### **AI Learning from Mistakes**
+Based on software development evolution principles:
+
+1. **Mistake Detection**:
+   - Automatic identification of trading mistakes
+   - Context-aware mistake classification
+   - Severity scoring for learning prioritization
+
+2. **Pattern Learning**:
+   - Recurring mistake pattern identification
+   - Context condition extraction
+   - Statistical analysis of mistake frequency
+
+3. **Adaptation Rules**:
+   - Dynamic behavior modification
+   - Confidence adjustment based on learned patterns
+   - Avoidance rules for high-risk scenarios
+
+4. **Evolution Tracking**:
+   - Learning effectiveness measurement
+   - Historical vs recent mistake comparison
+   - AI evolution status monitoring
+
+### **Demo Account Integration**
+- **Real Balance Detection**: No hardcoded 10000 balance
+- **Live MT5 Integration**: Uses actual demo account balance
+- **Dynamic Position Sizing**: Based on real account balance
+- **Balance Monitoring**: Real-time balance tracking
+
 ### **Streamlined ICT Implementation**
 - **Noise Reduction**: Only proven signals (OBs, FVGs, sweeps, structure)
 - **Quantified Signals**: Explicit counts and strength scores
@@ -143,12 +199,12 @@ Based on web research findings:
 
 ## 📊 **Model Comparison**
 
-| Model Type | Accuracy | Interpretability | Speed | Use Case |
-|------------|----------|------------------|-------|----------|
-| **LSTM** | High | Low | Medium | Pattern recognition |
-| **Hybrid Transformer+Tree** | Very High | High | Medium | Best of both worlds |
-| **RL PPO** | Medium | Low | Slow | Adaptive strategies |
-| **Rule-Based** | Medium | Very High | Fast | Conservative trading |
+| Model Type | Accuracy | Interpretability | Speed | Learning | Use Case |
+|------------|----------|------------------|-------|----------|----------|
+| **LSTM** | High | Low | Medium | Static | Pattern recognition |
+| **Hybrid Transformer+Tree** | Very High | High | Medium | Static | Best of both worlds |
+| **RL PPO** | Medium | Low | Slow | Dynamic | Adaptive strategies |
+| **Rule-Based + AI Learning** | High | Very High | Fast | Evolving | Self-improving trading |
 
 ---
 
@@ -178,8 +234,14 @@ python /workspace/cli.py backtest-decider EURUSD --model-pt /workspace/eurusd_ls
 
 ### **3. Production Phase**
 ```bash
-# Live trading with best model
+# Live trading with AI learning
 python /workspace/cli.py trade-once EURUSD --model-pt /workspace/hybrid_model.pt --risk-pct 0.01
+
+# Monitor AI learning progress
+python /workspace/cli.py ai-learning-status
+
+# Check demo account balance
+python /workspace/cli.py demo-balance
 ```
 
 ---
@@ -217,10 +279,12 @@ LEARNING_RATE=1e-3
 
 1. **Multi-Model Ensemble**: Combines different approaches for robustness
 2. **Interpretable Decisions**: Hybrid model provides clear reasoning
-3. **Risk Management**: ATR-based sizing with configurable risk
-4. **Real-Time Integration**: Direct MT5 connection for live trading
-5. **Comprehensive Backtesting**: Historical validation of strategies
-6. **Research-Driven**: Based on latest ML/AI research findings
+3. **AI Learning**: Self-improving system that learns from mistakes
+4. **Real Balance Integration**: Uses actual demo account balance
+5. **Risk Management**: ATR-based sizing with configurable risk
+6. **Real-Time Integration**: Direct MT5 connection for live trading
+7. **Comprehensive Backtesting**: Historical validation of strategies
+8. **Research-Driven**: Based on latest ML/AI research findings
 
 ---
 
@@ -237,9 +301,11 @@ LEARNING_RATE=1e-3
 ## 📝 **Notes**
 
 - **Hybrid Model**: Best accuracy + interpretability combination
+- **AI Learning**: Self-evolving system that improves over time
+- **Demo Account**: Uses real balance, no hardcoded values
 - **ICT Signals**: Focused on proven patterns only
 - **Risk Management**: Conservative approach with ATR sizing
 - **Backtesting**: Essential for strategy validation
 - **Live Trading**: Start with paper trading, then live with small position sizes
 
-The system is production-ready with comprehensive testing, validation, and risk management features.
+The system is production-ready with comprehensive testing, validation, AI learning, and risk management features.

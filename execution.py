@@ -2,6 +2,7 @@ import MetaTrader5 as mt5
 import numpy as np
 import pandas as pd
 from typing import Optional, Dict
+from mistake_learning import get_demo_account_balance
 
 
 def atr(df: pd.DataFrame, period: int = 14) -> float:
@@ -23,8 +24,8 @@ def size_from_risk(balance: float, risk_pct: float, stop_pips: float, pip_value:
 
 
 def current_balance() -> float:
-	info = mt5.account_info()
-	return float(info.balance) if info else 0.0
+	"""Get current account balance from MT5 demo account"""
+	return get_demo_account_balance()
 
 
 def execute_order(symbol: str, side: str, sl: Optional[float] = None, tp: Optional[float] = None, volume: float = 0.01) -> Dict:

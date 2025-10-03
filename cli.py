@@ -4,6 +4,7 @@ import typer
 import numpy as np
 import pandas as pd
 from datetime import datetime
+import MetaTrader5 as mt5
 
 from mtf_pipeline import MT5Connector, MT5Credentials, MultiTimeframeAnalyzer
 from datasets import DatasetBuilder
@@ -12,6 +13,7 @@ from execution import atr, size_from_risk, execute_order
 from backtest_decider import DecisionRuleBacktester
 from rl_trading import train_rl_agent, evaluate_rl_agent, TradingEnvironment
 from hybrid_transformer_tree import train_hybrid_model, evaluate_hybrid_model, HybridTransformerTree
+from mistake_learning import MistakeLearningSystem, analyze_trade_outcome, get_demo_account_balance
 
 app = typer.Typer(add_completion=False)
 
@@ -107,7 +109,7 @@ def evaluate(npz: str = typer.Argument(...), model_pt: str = typer.Argument(...)
 
 @app.command("trade-once")
 def trade_once(symbol: str = typer.Argument(...), model_pt: str = typer.Option(None), risk_pct: float = typer.Option(0.01), atr_mult: float = typer.Option(1.5)):
-	"""Perform one analysis->decision->execution cycle with ATR-based sizing."""
+	"""Perform one analysis->decision->execution cycle with ATR-based sizing and AI mistake learning."""
 	from mtf_pipeline import TIMEFRAME_MAP
 	creds = MT5Credentials(
 		login=_read_env_int("MT5_LOGIN"),
@@ -118,12 +120,48 @@ def trade_once(symbol: str = typer.Argument(...), model_pt: str = typer.Option(N
 	if not mt5c.initialize():
 		typer.echo("Failed to initialize MT5.")
 		typer.Exit(code=1)
+	
+	# Initialize AI learning system
+	ai_learner = MistakeLearningSystem()
+	
 	analyzer = MultiTimeframeAnalyzer(model_pt=model_pt)
 	analysis = analyzer.analyze(symbol, mt5c)
 	decision = analyzer.decision(analysis)
+	
+	# Apply AI adaptations
+	context = {
+		"volatility": analysis.get("H1", {}).get("ict_signal", {}).get("composite_score", 0.5),
+		"confidence": analysis.get("H1", {}).get("ict_signal", {}).get("confidence", 0.5),
+		"hour": datetime.now().hour,
+		"news_impact": analysis.get("sentiment", {}).get("composite_score", 0.5)
+	}
+	
+	features = {
+		"confidence": context["confidence"],
+		"volatility": context["volatility"],
+		"bias_alignment": 1.0 if all(b == decision.get("action", "HOLD") for b in analysis.get("bias", {}).values()) else 0.0
+	}
+	
+	should_trade, ai_reason, confidence_adjustment = ai_learner.apply_adaptations(
+		symbol, decision.get("action", "HOLD"), context, features
+	)
+	
+	if not should_trade:
+		mt5c.shutdown()
+		return typer.echo(json.dumps({
+			"decision": decision, 
+			"ai_override": True, 
+			"ai_reason": ai_reason,
+			"confidence_adjustment": confidence_adjustment
+		}, indent=2))
+	
 	if decision.get("action") == "HOLD":
 		mt5c.shutdown()
 		return typer.echo(json.dumps({"decision": decision}, indent=2))
+	
+	# Get actual demo account balance
+	demo_balance = get_demo_account_balance()
+	
 	# ATR sizing on H1
 	h1 = mt5c.fetch_rates(symbol, "H1", 1000)
 	atr_val = atr(h1)
@@ -133,16 +171,52 @@ def trade_once(symbol: str = typer.Argument(...), model_pt: str = typer.Option(N
 	else:
 		# Convert ATR price to pips assuming 1 pip = 0.0001
 		sl_pips = max((atr_val * atr_mult) / 0.0001, 20.0)
-		volume = size_from_risk(balance=float(os.getenv("PAPER_BALANCE", 10000)), risk_pct=risk_pct, stop_pips=sl_pips, pip_value=10.0)
+		volume = size_from_risk(balance=demo_balance, risk_pct=risk_pct, stop_pips=sl_pips, pip_value=10.0)
+	
 	# SL/TP based on current price and pips
 	tick = mt5.symbol_info_tick(symbol)
 	price = tick.ask if decision["action"] == "BUY" else tick.bid
 	pip = 0.0001
 	sl = price - sl_pips * pip if decision["action"] == "BUY" else price + sl_pips * pip
 	tp = price + sl_pips * pip if decision["action"] == "BUY" else price - sl_pips * pip
+	
 	res = execute_order(symbol, decision["action"], sl=sl, tp=tp, volume=volume)
+	
+	# Record trade for AI learning
+	trade_result = {
+		"symbol": symbol,
+		"action": decision["action"],
+		"price": price,
+		"volume": volume,
+		"pnl": 0.0,  # Will be updated when position closes
+		"max_drawdown": 0.0
+	}
+	
+	# Analyze for mistakes (simplified - in real implementation, track actual P&L)
+	expected_outcome = "profit" if decision["action"] in ["BUY", "SELL"] else "hold"
+	mistake = analyze_trade_outcome(trade_result, expected_outcome, context, features)
+	
+	if mistake:
+		lesson = ai_learner.record_mistake(
+			symbol=mistake.symbol,
+			action=mistake.action,
+			price=mistake.price,
+			context=mistake.context,
+			mistake_type=mistake.mistake_type,
+			outcome=mistake.outcome,
+			severity=mistake.severity,
+			features=mistake.features_at_mistake
+		)
+		print(f"🤖 AI Learning: {lesson}")
+	
 	mt5c.shutdown()
-	return typer.echo(json.dumps({"decision": decision, "order": res}, indent=2, default=str))
+	return typer.echo(json.dumps({
+		"decision": decision, 
+		"order": res, 
+		"demo_balance": demo_balance,
+		"ai_reason": ai_reason,
+		"confidence_adjustment": confidence_adjustment
+	}, indent=2, default=str))
 
 
 @app.command("backtest-decider")
@@ -321,6 +395,51 @@ def hybrid_decide(symbol: str = typer.Argument(...), model_path: str = typer.Arg
 	}
 	
 	typer.echo(json.dumps(decision, indent=2))
+
+
+@app.command("ai-learning-status")
+def ai_learning_status():
+	"""Show AI learning progress and adaptation rules."""
+	ai_learner = MistakeLearningSystem()
+	summary = ai_learner.get_learning_summary()
+	
+	typer.echo(json.dumps(summary, indent=2))
+
+
+@app.command("ai-reset-learning")
+def ai_reset_learning():
+	"""Reset AI learning database (clear all mistakes and rules)."""
+	import os
+	if os.path.exists("mistakes_db.json"):
+		os.remove("mistakes_db.json")
+		typer.echo("🤖 AI Learning database reset successfully")
+	else:
+		typer.echo("No learning database found to reset")
+
+
+@app.command("ai-show-rules")
+def ai_show_rules():
+	"""Show current AI adaptation rules."""
+	ai_learner = MistakeLearningSystem()
+	
+	if not ai_learner.adaptation_rules:
+		typer.echo("No adaptation rules learned yet")
+		return
+	
+	typer.echo("🤖 AI Adaptation Rules:")
+	for pattern, rule in ai_learner.adaptation_rules.items():
+		typer.echo(f"\nPattern: {pattern}")
+		typer.echo(f"Action: {rule['action']}")
+		typer.echo(f"Strength: {rule['strength']:.2f}")
+		typer.echo(f"Conditions: {rule['conditions']}")
+		typer.echo(f"Created: {rule['created_at']}")
+
+
+@app.command("demo-balance")
+def demo_balance():
+	"""Show current demo account balance."""
+	balance = get_demo_account_balance()
+	typer.echo(f"💰 Demo Account Balance: ${balance:.2f}")
 
 
 if __name__ == "__main__":
