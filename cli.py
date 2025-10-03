@@ -2,11 +2,14 @@ import os
 import json
 import typer
 import numpy as np
+import pandas as pd
 
 from mtf_pipeline import MT5Connector, MT5Credentials, MultiTimeframeAnalyzer
 from datasets import DatasetBuilder
 from deep_model import train_model, evaluate_model
 from execution import atr, size_from_risk, execute_order
+from backtest_decider import DecisionRuleBacktester
+from rl_trading import train_rl_agent, evaluate_rl_agent, TradingEnvironment
 
 app = typer.Typer(add_completion=False)
 
@@ -138,6 +141,90 @@ def trade_once(symbol: str = typer.Argument(...), model_pt: str = typer.Option(N
 	res = execute_order(symbol, decision["action"], sl=sl, tp=tp, volume=volume)
 	mt5c.shutdown()
 	return typer.echo(json.dumps({"decision": decision, "order": res}, indent=2, default=str))
+
+
+@app.command("backtest-decider")
+def backtest_decider(symbol: str = typer.Argument(...), model_pt: str = typer.Option(None), risk_pct: float = typer.Option(0.01), atr_mult: float = typer.Option(1.5), out_json: str = typer.Option("backtest_results.json")):
+	"""Backtest decision rules over historical data."""
+	creds = MT5Credentials(
+		login=_read_env_int("MT5_LOGIN"),
+		password=os.getenv("MT5_PASSWORD"),
+		server=os.getenv("MT5_SERVER"),
+	)
+	mt5c = MT5Connector(creds)
+	if not mt5c.initialize():
+		typer.echo("Failed to initialize MT5.")
+		typer.Exit(code=1)
+	
+	backtester = DecisionRuleBacktester(model_pt=model_pt)
+	results = backtester.run_backtest(symbol, mt5c, risk_per_trade=risk_pct, atr_multiplier=atr_mult)
+	mt5c.shutdown()
+	
+	# Save results
+	with open(out_json, 'w') as f:
+		json.dump(results, f, indent=2, default=str)
+	
+	typer.echo(f"Backtest completed. Results saved to {out_json}")
+	typer.echo(f"Total Return: {results.get('total_return', 0):.2%}")
+	typer.echo(f"Win Rate: {results.get('win_rate', 0):.2%}")
+	typer.echo(f"Max Drawdown: {results.get('max_drawdown', 0):.2%}")
+
+
+@app.command("rl-train")
+def rl_train(symbol: str = typer.Argument(...), timesteps: int = typer.Option(100000), lr: float = typer.Option(3e-4), out_model: str = typer.Option("ppo_trading_model")):
+	"""Train RL agent (PPO) on trading environment."""
+	creds = MT5Credentials(
+		login=_read_env_int("MT5_LOGIN"),
+		password=os.getenv("MT5_PASSWORD"),
+		server=os.getenv("MT5_SERVER"),
+	)
+	mt5c = MT5Connector(creds)
+	if not mt5c.initialize():
+		typer.echo("Failed to initialize MT5.")
+		typer.Exit(code=1)
+	
+	# Get training data
+	h1_data = mt5c.fetch_rates(symbol, "H1", 5000)
+	mt5c.shutdown()
+	
+	if h1_data.empty:
+		typer.echo("No data available for training.")
+		typer.Exit(code=1)
+	
+	# Train RL agent
+	model = train_rl_agent(h1_data, symbol, total_timesteps=timesteps, learning_rate=lr, model_save_path=out_model)
+	
+	typer.echo(f"RL training completed. Model saved to {out_model}")
+
+
+@app.command("rl-evaluate")
+def rl_evaluate(symbol: str = typer.Argument(...), model_path: str = typer.Argument(...), episodes: int = typer.Option(10)):
+	"""Evaluate trained RL agent."""
+	creds = MT5Credentials(
+		login=_read_env_int("MT5_LOGIN"),
+		password=os.getenv("MT5_PASSWORD"),
+		server=os.getenv("MT5_SERVER"),
+	)
+	mt5c = MT5Connector(creds)
+	if not mt5c.initialize():
+		typer.echo("Failed to initialize MT5.")
+		typer.Exit(code=1)
+	
+	# Get evaluation data
+	h1_data = mt5c.fetch_rates(symbol, "H1", 2000)
+	mt5c.shutdown()
+	
+	if h1_data.empty:
+		typer.echo("No data available for evaluation.")
+		typer.Exit(code=1)
+	
+	# Load model and evaluate
+	from stable_baselines3 import PPO
+	model = PPO.load(model_path)
+	
+	results = evaluate_rl_agent(model, h1_data, symbol, num_episodes=episodes)
+	
+	typer.echo(json.dumps(results, indent=2))
 
 
 if __name__ == "__main__":
