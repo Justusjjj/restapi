@@ -20,6 +20,11 @@ from advanced_order_manager import AdvancedOrderManager, AdvancedOrder, OrderTyp
 from advanced_news_sentiment import AdvancedNewsSentimentAnalyzer
 from advanced_backtester import AdvancedBacktester
 from performance_dashboard import RealTimePerformanceDashboard, PerformanceAnalytics
+from ict_strategy import ICTStrategy
+from momentum_strategies import MomentumStrategy, MeanReversionStrategy
+from breakout_strategies import BreakoutStrategy, RangeTradingStrategy
+from multi_timeframe_strategies import MultiTimeframeStrategy, StrategyManager
+from strategy_optimizer import StrategyOptimizer
 
 app = typer.Typer(add_completion=False)
 
@@ -533,6 +538,278 @@ def start_dashboard(symbols: str = typer.Argument(...), port: int = typer.Option
 	
 	typer.echo(f"Starting dashboard for {symbol_list} on port {port}")
 	dashboard.run_dashboard(port=port)
+
+
+@app.command("strategy-test")
+def strategy_test(symbol: str = typer.Argument(...), strategy_name: str = typer.Argument(...)):
+	"""Test a specific trading strategy."""
+	creds = MT5Credentials(
+		login=_read_env_int("MT5_LOGIN"),
+		password=os.getenv("MT5_PASSWORD"),
+		server=os.getenv("MT5_SERVER"),
+	)
+	mt5c = MT5Connector(creds)
+	if not mt5c.initialize():
+		typer.echo("Failed to initialize MT5.")
+		typer.Exit(code=1)
+	
+	# Initialize strategy
+	strategies = {
+		"ict": ICTStrategy(symbol, "H1"),
+		"momentum": MomentumStrategy(symbol, "H1"),
+		"mean_reversion": MeanReversionStrategy(symbol, "H1"),
+		"breakout": BreakoutStrategy(symbol, "H1"),
+		"range_trading": RangeTradingStrategy(symbol, "H1"),
+		"multi_timeframe": MultiTimeframeStrategy(symbol, "H1")
+	}
+	
+	if strategy_name not in strategies:
+		typer.echo(f"Unknown strategy: {strategy_name}")
+		typer.echo(f"Available strategies: {', '.join(strategies.keys())}")
+		mt5c.shutdown()
+		typer.Exit(code=1)
+	
+	strategy = strategies[strategy_name]
+	
+	# Get data
+	data = mt5c.fetch_rates(symbol, "H1", 1000)
+	mt5c.shutdown()
+	
+	if data.empty:
+		typer.echo("No data available.")
+		typer.Exit(code=1)
+	
+	# Generate signal
+	if strategy_name == "multi_timeframe":
+		# Multi-timeframe needs all timeframes
+		mtf_data = {}
+		for tf in ["H4", "H1", "M15"]:
+			tf_data = mt5c.fetch_rates(symbol, tf, 500)
+			if not tf_data.empty:
+				mtf_data[tf] = tf_data
+		
+		signal = strategy.generate_signal(mtf_data)
+	else:
+		signal = strategy.generate_signal(data)
+	
+	if signal:
+		result = {
+			"strategy": strategy_name,
+			"symbol": symbol,
+			"action": signal.action,
+			"entry_price": signal.entry_price,
+			"stop_loss": signal.stop_loss,
+			"take_profit": signal.take_profit,
+			"confidence": signal.confidence,
+			"signal_strength": signal.signal_strength.value,
+			"reason": signal.reason,
+			"risk_reward_ratio": signal.risk_reward_ratio,
+			"timestamp": signal.timestamp.isoformat()
+		}
+		typer.echo(json.dumps(result, indent=2))
+	else:
+		typer.echo(json.dumps({"strategy": strategy_name, "signal": "HOLD", "reason": "No signal generated"}, indent=2))
+
+
+@app.command("strategy-backtest")
+def strategy_backtest(symbol: str = typer.Argument(...), strategy_name: str = typer.Option("all", help="Strategy name or 'all' for all strategies")):
+	"""Run backtest for trading strategies."""
+	creds = MT5Credentials(
+		login=_read_env_int("MT5_LOGIN"),
+		password=os.getenv("MT5_PASSWORD"),
+		server=os.getenv("MT5_SERVER"),
+	)
+	mt5c = MT5Connector(creds)
+	if not mt5c.initialize():
+		typer.echo("Failed to initialize MT5.")
+		typer.Exit(code=1)
+	
+	# Initialize optimizer
+	optimizer = StrategyOptimizer(symbol)
+	
+	# Get data for all timeframes
+	data = {}
+	for tf in ["H4", "H1", "M15"]:
+		tf_data = mt5c.fetch_rates(symbol, tf, 1000)
+		if not tf_data.empty:
+			data[tf] = tf_data
+	
+	mt5c.shutdown()
+	
+	if not data:
+		typer.echo("No data available.")
+		typer.Exit(code=1)
+	
+	# Run backtest
+	if strategy_name == "all":
+		results = optimizer.run_comprehensive_backtest(data)
+	else:
+		# Test specific strategy
+		if strategy_name not in optimizer.strategies:
+			typer.echo(f"Unknown strategy: {strategy_name}")
+			typer.echo(f"Available strategies: {', '.join(optimizer.strategies.keys())}")
+			typer.Exit(code=1)
+		
+		strategy = optimizer.strategies[strategy_name]
+		performance = optimizer._backtest_strategy(strategy, data, 1000)
+		results = {strategy_name: performance}
+	
+	# Generate report
+	optimizer.generate_performance_report(f"{symbol}_{strategy_name}_backtest_report.html")
+	
+	# Export results
+	optimizer.export_results(f"{symbol}_{strategy_name}_results.json")
+	
+	# Show summary
+	rankings = optimizer.get_strategy_rankings()
+	best_strategy = optimizer.get_best_strategy()
+	
+	summary = {
+		"symbol": symbol,
+		"best_strategy": best_strategy,
+		"rankings": rankings,
+		"total_strategies_tested": len(results),
+		"report_generated": f"{symbol}_{strategy_name}_backtest_report.html"
+	}
+	
+	typer.echo(json.dumps(summary, indent=2))
+
+
+@app.command("strategy-optimize")
+def strategy_optimize(symbol: str = typer.Argument(...), strategy_name: str = typer.Argument(...)):
+	"""Optimize strategy parameters."""
+	creds = MT5Credentials(
+		login=_read_env_int("MT5_LOGIN"),
+		password=os.getenv("MT5_PASSWORD"),
+		server=os.getenv("MT5_SERVER"),
+	)
+	mt5c = MT5Connector(creds)
+	if not mt5c.initialize():
+		typer.echo("Failed to initialize MT5.")
+		typer.Exit(code=1)
+	
+	# Get data
+	data = {}
+	for tf in ["H4", "H1", "M15"]:
+		tf_data = mt5c.fetch_rates(symbol, tf, 1000)
+		if not tf_data.empty:
+			data[tf] = tf_data
+	
+	mt5c.shutdown()
+	
+	if not data:
+		typer.echo("No data available.")
+		typer.Exit(code=1)
+	
+	# Initialize optimizer
+	optimizer = StrategyOptimizer(symbol)
+	
+	# Define parameter grids for optimization
+	parameter_grids = {
+		"ICT": {
+			"order_block_lookback": [15, 20, 25],
+			"fvg_lookback": [8, 10, 12],
+			"min_confidence": [0.5, 0.6, 0.7],
+			"risk_reward_min": [1.2, 1.5, 2.0]
+		},
+		"Momentum": {
+			"ema_fast": [10, 12, 15],
+			"ema_slow": [24, 26, 30],
+			"rsi_period": [12, 14, 16],
+			"min_trend_strength": [0.5, 0.6, 0.7]
+		},
+		"Mean_Reversion": {
+			"bb_period": [18, 20, 22],
+			"bb_std": [1.8, 2.0, 2.2],
+			"rsi_period": [12, 14, 16],
+			"min_reversal_strength": [0.5, 0.6, 0.7]
+		},
+		"Breakout": {
+			"consolidation_periods": [18, 20, 22],
+			"breakout_threshold": [0.0003, 0.0005, 0.0007],
+			"min_breakout_strength": [0.6, 0.7, 0.8]
+		},
+		"Range_Trading": {
+			"range_periods": [45, 50, 55],
+			"min_range_size": [0.0008, 0.001, 0.0012],
+			"max_range_size": [0.004, 0.005, 0.006],
+			"min_bounces": [2, 3, 4]
+		}
+	}
+	
+	if strategy_name not in parameter_grids:
+		typer.echo(f"Optimization not available for strategy: {strategy_name}")
+		typer.echo(f"Available for optimization: {', '.join(parameter_grids.keys())}")
+		typer.Exit(code=1)
+	
+	# Run optimization
+	parameter_grid = parameter_grids[strategy_name]
+	results = optimizer.optimize_strategy_parameters(strategy_name, data, parameter_grid)
+	
+	typer.echo(json.dumps(results, indent=2))
+
+
+@app.command("strategy-manager")
+def strategy_manager(symbol: str = typer.Argument(...), action: str = typer.Argument(...)):
+	"""Manage strategy ensemble."""
+	creds = MT5Credentials(
+		login=_read_env_int("MT5_LOGIN"),
+		password=os.getenv("MT5_PASSWORD"),
+		server=os.getenv("MT5_SERVER"),
+	)
+	mt5c = MT5Connector(creds)
+	if not mt5c.initialize():
+		typer.echo("Failed to initialize MT5.")
+		typer.Exit(code=1)
+	
+	# Initialize strategy manager
+	manager = StrategyManager(symbol)
+	
+	# Get data
+	data = {}
+	for tf in ["H4", "H1", "M15"]:
+		tf_data = mt5c.fetch_rates(symbol, tf, 1000)
+		if not tf_data.empty:
+			data[tf] = tf_data
+	
+	mt5c.shutdown()
+	
+	if not data:
+		typer.echo("No data available.")
+		typer.Exit(code=1)
+	
+	if action == "ensemble-signal":
+		# Generate ensemble signal
+		signal = manager.generate_ensemble_signal(data)
+		
+		if signal:
+			result = {
+				"action": signal.action,
+				"entry_price": signal.entry_price,
+				"stop_loss": signal.stop_loss,
+				"take_profit": signal.take_profit,
+				"confidence": signal.confidence,
+				"reason": signal.reason,
+				"individual_signals": signal.additional_info.get("individual_signals", {}),
+				"votes": signal.additional_info.get("votes", {}),
+				"active_strategies": signal.additional_info.get("active_strategies", [])
+			}
+			typer.echo(json.dumps(result, indent=2))
+		else:
+			typer.echo(json.dumps({"signal": "HOLD", "reason": "No ensemble signal generated"}, indent=2))
+	
+	elif action == "performance":
+		# Get strategy performance
+		performance = manager.get_strategy_performance()
+		typer.echo(json.dumps(performance, indent=2))
+	
+	elif action == "set-weights":
+		# Set strategy weights (would need parameters)
+		typer.echo("Strategy weight setting requires additional parameters")
+	
+	else:
+		typer.echo(f"Unknown action: {action}")
+		typer.echo("Available actions: ensemble-signal, performance, set-weights")
 
 
 if __name__ == "__main__":
