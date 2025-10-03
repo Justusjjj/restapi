@@ -86,8 +86,6 @@ textblob==0.17.1
 vaderSentiment==3.3.2
 nltk==3.8.1
 
-# Neural Network and Deep Learning
-tensorflow-gpu==2.15.0
-keras-tuner==1.4.7
-optuna==3.4.0
-hyperopt==0.2.7
+# AI Learning and Mistake Analysis
+joblib==1.3.2
+dataclasses-json==0.6.3
