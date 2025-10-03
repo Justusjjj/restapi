@@ -3,6 +3,7 @@ import json
 import typer
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 from mtf_pipeline import MT5Connector, MT5Credentials, MultiTimeframeAnalyzer
 from datasets import DatasetBuilder
@@ -10,6 +11,7 @@ from deep_model import train_model, evaluate_model
 from execution import atr, size_from_risk, execute_order
 from backtest_decider import DecisionRuleBacktester
 from rl_trading import train_rl_agent, evaluate_rl_agent, TradingEnvironment
+from hybrid_transformer_tree import train_hybrid_model, evaluate_hybrid_model, HybridTransformerTree
 
 app = typer.Typer(add_completion=False)
 
@@ -225,6 +227,100 @@ def rl_evaluate(symbol: str = typer.Argument(...), model_path: str = typer.Argum
 	results = evaluate_rl_agent(model, h1_data, symbol, num_episodes=episodes)
 	
 	typer.echo(json.dumps(results, indent=2))
+
+
+@app.command("hybrid-train")
+def hybrid_train(npz: str = typer.Argument(...), tree_type: str = typer.Option("random_forest", help="Tree type: random_forest, gradient_boosting, single_tree"), epochs: int = typer.Option(50), batch_size: int = typer.Option(64), lr: float = typer.Option(1e-3), out_model: str = typer.Option("hybrid_model.pt")):
+	"""Train hybrid Transformer + Decision Tree model."""
+	data = np.load(npz)
+	X, y = data["X"], data["y"]
+	
+	model = train_hybrid_model(X, y, tree_type=tree_type, epochs=epochs, batch_size=batch_size, lr=lr)
+	model.save_model(out_model)
+	
+	typer.echo(f"Hybrid model training completed. Model saved to {out_model}")
+
+
+@app.command("hybrid-evaluate")
+def hybrid_evaluate(npz: str = typer.Argument(...), model_path: str = typer.Argument(...)):
+	"""Evaluate hybrid Transformer + Decision Tree model."""
+	data = np.load(npz)
+	X, y = data["X"], data["y"]
+	
+	model = HybridTransformerTree()
+	model.load_model(model_path)
+	
+	results = evaluate_hybrid_model(model, X, y)
+	
+	typer.echo(json.dumps(results, indent=2))
+
+
+@app.command("hybrid-decide")
+def hybrid_decide(symbol: str = typer.Argument(...), model_path: str = typer.Argument(...)):
+	"""Make trading decision using hybrid Transformer + Decision Tree model."""
+	creds = MT5Credentials(
+		login=_read_env_int("MT5_LOGIN"),
+		password=os.getenv("MT5_PASSWORD"),
+		server=os.getenv("MT5_SERVER"),
+	)
+	mt5c = MT5Connector(creds)
+	if not mt5c.initialize():
+		typer.echo("Failed to initialize MT5.")
+		typer.Exit(code=1)
+	
+	# Get recent data for prediction
+	m15_data = mt5c.fetch_rates(symbol, "M15", 1000)
+	mt5c.shutdown()
+	
+	if m15_data.empty:
+		typer.echo("No data available.")
+		typer.Exit(code=1)
+	
+	# Prepare features (same as in datasets.py)
+	df = m15_data.copy()
+	df["ret"] = df["close"].pct_change()
+	df["vol"] = df["ret"].rolling(20).std()
+	df["ma_fast"] = df["close"].ewm(span=10).mean()
+	df["ma_slow"] = df["close"].ewm(span=30).mean()
+	df["bb_mid"] = df["close"].rolling(20).mean()
+	df["bb_std"] = df["close"].rolling(20).std()
+	df = df.dropna()
+	
+	feat_cols = ["ret", "vol", "ma_fast", "ma_slow", "bb_mid", "bb_std", "high", "low", "open", "close", "volume"]
+	seq_len = 64
+	
+	if len(df) < seq_len:
+		typer.echo("Insufficient data for prediction.")
+		typer.Exit(code=1)
+	
+	# Get latest sequence
+	latest_seq = df[feat_cols].values[-seq_len:]
+	X_pred = latest_seq[np.newaxis, ...]
+	
+	# Load model and predict
+	model = HybridTransformerTree()
+	model.load_model(model_path)
+	
+	prediction = model.predict(X_pred)[0]
+	probabilities = model.predict_proba(X_pred)[0]
+	
+	# Convert to trading decision
+	action_map = {0: "HOLD", 1: "BUY", 2: "SELL"}
+	action = action_map.get(prediction, "HOLD")
+	
+	decision = {
+		"action": action,
+		"confidence": float(max(probabilities)),
+		"probabilities": {
+			"HOLD": float(probabilities[0]),
+			"BUY": float(probabilities[1]) if len(probabilities) > 1 else 0.0,
+			"SELL": float(probabilities[2]) if len(probabilities) > 2 else 0.0
+		},
+		"feature_importance": model._get_feature_importance(),
+		"timestamp": datetime.now().isoformat()
+	}
+	
+	typer.echo(json.dumps(decision, indent=2))
 
 
 if __name__ == "__main__":
