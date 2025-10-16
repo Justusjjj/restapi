@@ -1,0 +1,88 @@
+{
+  "data": {
+    "data_path": "data",
+    "storage_path": "data/storage",
+    "replay": {
+      "time_step": "1s",
+      "cache_size": 1000
+    }
+  },
+  "trading": {
+    "instruments": ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD"],
+    "base_currency": "USD",
+    "max_positions": 10,
+    "max_exposure": 0.8
+  },
+  "strategies": {
+    "mean_reversion": {
+      "enabled": true,
+      "zscore_threshold": 2.0,
+      "zscore_exit_threshold": 0.5,
+      "vwap_window": 20,
+      "zscore_window": 20,
+      "atr_window": 14,
+      "target_volatility": 0.02,
+      "max_position_size": 0.1,
+      "min_volume_ratio": 1.0
+    },
+    "momentum": {
+      "enabled": true,
+      "fast_ema": 12,
+      "slow_ema": 26,
+      "signal_ema": 9,
+      "rsi_window": 14,
+      "rsi_oversold": 30,
+      "rsi_overbought": 70,
+      "atr_window": 14,
+      "stop_loss_atr_multiple": 2.0,
+      "take_profit_atr_multiple": 3.0,
+      "target_volatility": 0.02,
+      "max_position_size": 0.1,
+      "min_volume_ratio": 1.2,
+      "trend_strength_threshold": 0.3
+    },
+    "pair_trading": {
+      "enabled": true,
+      "zscore_entry_threshold": 2.0,
+      "zscore_exit_threshold": 0.5,
+      "zscore_window": 20,
+      "hedge_ratio_window": 60,
+      "rebalance_frequency": 5,
+      "min_cointegration_pvalue": 0.05,
+      "target_volatility": 0.015,
+      "max_position_size": 0.05,
+      "min_half_life": 1,
+      "max_half_life": 30
+    }
+  },
+  "backtest": {
+    "initial_capital": 100000.0,
+    "start_date": "2023-01-01",
+    "end_date": "2023-12-31",
+    "transaction_costs": {
+      "commission_per_trade": 1.0,
+      "commission_per_value": 0.001,
+      "spread_bps": 1.0,
+      "spread_model": "fixed",
+      "slippage_bps": 0.5,
+      "slippage_model": "sqrt",
+      "max_slippage_bps": 5.0,
+      "impact_factor": 0.1,
+      "funding_rate": 0.0
+    }
+  },
+  "risk": {
+    "max_drawdown": 0.15,
+    "max_position_size": 0.1,
+    "max_correlation": 0.7,
+    "stop_loss_atr_multiple": 2.0,
+    "take_profit_atr_multiple": 3.0
+  },
+  "monitoring": {
+    "log_level": "INFO",
+    "save_trades": true,
+    "save_performance": true,
+    "alert_email": null,
+    "alert_telegram": null
+  }
+}
